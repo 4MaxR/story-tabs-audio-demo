@@ -29,10 +29,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Audio Controller ---
 
-    const toggleAudio = () => {
+    const toggleAudio = async () => {
         if (audio.paused) {
-            audio.play().catch(err => console.log('Playback blocked:', err));
-            updateAudioUI(true);
+            try {
+                await audio.play();
+                updateAudioUI(true);
+            } catch (err) {
+                // If blocked, show overlay prompt
+                interactionPrompt.classList.remove('hidden');
+                setupInteractionListeners();
+                updateAudioUI(false);
+            }
         } else {
             audio.pause();
             updateAudioUI(false);
@@ -54,18 +61,32 @@ document.addEventListener('DOMContentLoaded', () => {
     // Robust Autoplay Handling
     const attemptAutoplay = () => {
         audio.volume = volumeSlider.value;
-        const playPromise = audio.play();
 
-        if (playPromise !== undefined) {
-            playPromise.then(() => {
-                // Autoplay started!
-                updateAudioUI(true);
-            }).catch(() => {
-                // Autoplay blocked - wait for interaction
-                interactionPrompt.classList.remove('hidden');
-                setupInteractionListeners();
-            });
-        }
+        // Try muted autoplay first (works on more browsers)
+        audio.muted = true;
+
+        const p = audio.play();
+        if (!p) return;
+
+        p.then(() => {
+            // We started (muted). Now we wait for first interaction to unmute.
+            updateAudioUI(true);
+            statusText.textContent = 'Audio Ready';
+
+            const unmuteOnce = () => {
+                audio.muted = false;
+                statusText.textContent = 'Audio On';
+                document.removeEventListener('pointerdown', unmuteOnce);
+                document.removeEventListener('keydown', unmuteOnce);
+            };
+
+            document.addEventListener('pointerdown', unmuteOnce, { once: true });
+            document.addEventListener('keydown', unmuteOnce, { once: true });
+        }).catch(() => {
+            // Autoplay fully blocked
+            interactionPrompt.classList.remove('hidden');
+            setupInteractionListeners();
+        });
     };
 
     const setupInteractionListeners = () => {
@@ -73,7 +94,7 @@ document.addEventListener('DOMContentLoaded', () => {
             audio.play();
             updateAudioUI(true);
             interactionPrompt.classList.add('hidden');
-            
+
             // Remove listeners after first interaction
             document.removeEventListener('click', startExperience);
             document.removeEventListener('keydown', startExperience);
@@ -99,7 +120,7 @@ document.addEventListener('DOMContentLoaded', () => {
         tabs[currentTabIndex].setAttribute('aria-selected', 'true');
         tabs[currentTabIndex].setAttribute('tabindex', '0');
         panels[currentTabIndex].hidden = false;
-        
+
         // Reset timer state
         progress = 0;
         lastTime = performance.now();
@@ -113,7 +134,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Animation Loop for Progress Bar
     const updateProgress = (timestamp) => {
         if (!lastTime) lastTime = timestamp;
-        
+
         if (isAutoPlaying) {
             const elapsed = timestamp - lastTime;
             lastTime = timestamp;
